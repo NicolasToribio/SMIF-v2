@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block content %}
+
+
+<h1>Stock Prices</h1>
+<br/>
+<br/>
+
+<h2>{{exceldf}}</h2>
+
+
+{% endblock %}
+
+
+
+{% comment %} 
+Latest Version of Home with Tiingo API
+{% extends 'base.html' %}
+{% block content %}
+
+
+<h1>Stock Prices</h1>
+<br/>
+<br/>
+
+<h2></h2>
+
+{% for stock in stock_data %}
+    <h2>{{ stock.ticker|upper }}</h2>
+    {% if stock.data != 'Error...'%}
+        <p>Closing Price: {{ stock.data.0.close }} </p>
+        <br/>
+        <h3>Full Data:</h3>
+        {% for key, value in stock.data.0.items %}
+            <p>{{ key }}: {{ value }}</p>
+            <br/>
+        {% endfor %}
+        <p>{{ stock.data }}</p> Commented out
+        {% else %}
+        <p>Error retrieving data. Please check your ticker symbols and try again.</p>
+    {% endif %}
+    <br/>
+{% endfor %}
+
+{% endblock %}
+
+{% endcomment %}
+
+
+
+{%comment%}
+{% if api %}
+    {% if api == "Error..." %}
+        Error retrieving data. Please check your ticker symbol and try again.
+    {% else %}
+
+        {{ api.}}
+
+        {% for key, value in api.0.items %}
+        {{key}}: {{ value }} <br/>
+        {%endfor%}
+
+
+    {% endif %}
+{% endif %}
+
+
+{% endblock %}
+{%endcomment%}
+
+
+
+{%comment%} Latest Home
+{% if api != "Error..." %}
+    <p>Closing Price: {{ api.0.close }}</p>
+    <br/>
+    <br/>
+    <h2>Full API Response:</h2>
+    <p>{{ api }}</p>
+{% else %}
+    <p>Error retrieving data. Please check your ticker symbol and try again.</p>
+{% endif %}
+
+
+{% endblock %}
+{%endcomment%}
+
+{% comment %} Copilot Solution Home
+{% extends 'base.html' %}
+{% block content %}
+
+<h1>Stock Prices</h1>
+<br/>
+<br/>
+{% if api != "Error..." %}
+    <p>Closing Price: {{ api.0.close }}</p>
+    <br/><br/>
+    <h2>Full API Response:</h2>
+    <pre>{{ api | safe }}</pre>
+{% else %}
+    <p>Error retrieving data</p>
+{% endif %}
+
+{% endblock %} 
+{% endcomment %}
+
+
+
+
+{% comment %} Old Home 
+{% extends 'base.html' %} 
+{% block content %}
+
+<h1>Hello World!</h1>
+<br/>
+<br/>
+
+{{ api }}
+
+
+{% endblock %}
+{% endcomment %}

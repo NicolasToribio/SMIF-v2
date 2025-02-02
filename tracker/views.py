@@ -1,4 +1,5 @@
 from django.shortcuts import render
+import xlwings as xw
 import pandas as pd
 import plotly.express as px
 
@@ -8,14 +9,24 @@ def home(request): #Whenever someone visits our website, their browser requests 
     import requests #requests stuff from the internet
     import json #javascript object notation, default format for what most APIs return
 
-    exceldf = pd.read_excel('SMIF Portfolio Tracker.xlsx', sheet_name='Transaction', usecols='B:H', skiprows=4)
-    exceldf = exceldf.dropna(how='any')  # Drop rows where all elements are NaN
-    print(exceldf)
-    print("Column Names: ")
-    print(exceldf.columns)
+    file_path = "SMIF Portfolio Tracker.xlsx"
+    app = xw.App(visible=False)  # app gives you more control by specifying an instance of the spreadsheet, set visible=True for debugging
+    wb = app.books.open(file_path)
+    sheet = wb.sheets['Transaction']
+
+    try:
+        wb.api.RefreshAll()  # Refresh external data connections
+        app.calculate()  # Ensure formulas and links are updated
+
+        exceldata = sheet.range("B5:H100").options(pd.DataFrame, header=1, index=False).value
+        exceldata = exceldata.dropna(how='any') #Drop rows where all elements are NaN
+        print(exceldata)
+    finally: #finally block always executes after normal termination of try block or after try block terminates due to some exception.
+        wb.close()
+        app.quit()
 
     donutchart = px.pie(
-        exceldf, 
+        exceldata, 
         names='Ticker', 
         values='Weight',
         custom_data=['Live Price', 'Purchase Price', 'Quantity', 'Total Value'],
@@ -44,7 +55,7 @@ def home(request): #Whenever someone visits our website, their browser requests 
 
     donutchart.show()
 
-    return render(request, 'home.html', {'exceldf': exceldf}) #and return our home page | context dictionary, we pass the api variable into our homepage and can now access it
+    return render(request, 'home.html', {'exceldata': exceldata}) #and return our home page | context dictionary, we pass the api variable into our homepage and can now access it
 
 def about(request):
     return render(request, 'about.html', {}) #Allow us to pass stuff into the webpage and use it in the HTMl page in Python
@@ -99,10 +110,10 @@ def home(request): #Whenever someone visits our website, their browser requests 
     import requests #requests stuff from the internet
     import json #javascript object notation, default format for what most APIs return
 
-    #934aff6d72127c613a4b3d0093d49b5565184e27
+
     headers = { #explained in notes
         'Content-Type': 'application/json',
-        'Authorization': 'Token 934aff6d72127c613a4b3d0093d49b5565184e27'
+        'Authorization': 'Token INSERT_API_KEY_HERE'
         }
     
     tickers = ['aapl','adbe','adp', 'all', 'amzn']

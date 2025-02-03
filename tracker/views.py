@@ -12,18 +12,54 @@ def home(request): #Whenever someone visits our website, their browser requests 
     file_path = "SMIF Portfolio Tracker.xlsx"
     app = xw.App(visible=False)  # app gives you more control by specifying an instance of the spreadsheet, set visible=True for debugging
     wb = app.books.open(file_path)
-    sheet = wb.sheets['Transaction']
+    sheet = wb.sheets['Transaction'] #rename to transaction later
+    dashsheet = wb.sheets['Dashboard']
 
     try:
         wb.api.RefreshAll()  # Refresh external data connections
         app.calculate()  # Ensure formulas and links are updated
 
+        smifytd = dashsheet['J7'].value
+        smifytd = round(smifytd*100, 2) #Find better solution later
+        spytd = dashsheet['J12'].value
+        spytd = round(spytd*100,2) #Find better solution later
+
+        print(type(smifytd))
+        print(smifytd)
+        print(spytd)
+        ytddata = {
+        "Portfolio": ["S&P500", "SMIF"],
+        "Gain (%)": [spytd, smifytd],
+        }
+        ytddf = pd.DataFrame(ytddata)
+        #print(ytddf)
+
         exceldata = sheet.range("B5:H100").options(pd.DataFrame, header=1, index=False).value
         exceldata = exceldata.dropna(how='any') #Drop rows where all elements are NaN
-        print(exceldata)
+        #print(exceldata)
     finally: #finally block always executes after normal termination of try block or after try block terminates due to some exception.
         wb.close()
         app.quit()
+
+    barchart = px.bar(
+        ytddf, 
+        x="Portfolio", 
+        y="Gain (%)", 
+        title="Portfolio Performance YTD", 
+        text="Gain (%)",
+        color ="Portfolio",
+        color_discrete_map={"S&P500": "#ef553b", "SMIF": "#636efa"}
+        )
+    
+    #barchart.update_yaxes(range=[0, 35])
+    barchart.update_layout(
+        width=700, 
+        height=500, 
+        bargap=0.4,
+        showlegend=False
+        )
+
+    barchart.show()
 
     donutchart = px.pie(
         exceldata, 
@@ -53,7 +89,9 @@ def home(request): #Whenever someone visits our website, their browser requests 
     showlegend=False
     )
 
-    donutchart.show()
+  
+
+    #donutchart.show()
 
     return render(request, 'home.html', {'exceldata': exceldata}) #and return our home page | context dictionary, we pass the api variable into our homepage and can now access it
 

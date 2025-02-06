@@ -2,6 +2,7 @@ from django.shortcuts import render
 import xlwings as xw
 import pandas as pd
 import plotly.express as px
+import time
 
 
 def home(request): #Whenever someone visits our website, their browser requests our page. We pass that request into our function
@@ -17,16 +18,24 @@ def home(request): #Whenever someone visits our website, their browser requests 
 
     try:
         wb.api.RefreshAll()  # Refresh external data connections
+        time.sleep(2) #Gives Excel some time to update to prevent #CONNECT! error, adjust as needed 
         app.calculate()  # Ensure formulas and links are updated
 
-        smifytd = dashsheet['J7'].value
-        smifytd = round(smifytd*100, 2) #Find better solution later
-        spytd = dashsheet['J12'].value
-        spytd = round(spytd*100,2) #Find better solution later
+        def safe_get_value(sheet, cell): #error handling to avoid Attribute Error from #CONNECT!
+            value = sheet[cell].value
+            if value is None:
+                return 0  # fallback value
+            return value
 
-        print(type(smifytd))
-        print(smifytd)
-        print(spytd)
+        smifytd = safe_get_value(dashsheet, 'J7')
+        smifytd = round(smifytd * 100, 2)
+
+        spytd = safe_get_value(dashsheet, 'J12')
+        spytd = round(spytd * 100, 2)
+
+        print(f"Raw smifytd value: {dashsheet['J7'].value}")
+        print(f"Raw spytd value: {dashsheet['J12'].value}")
+
         ytddata = {
         "Portfolio": ["S&P500", "SMIF"],
         "Gain (%)": [spytd, smifytd],
@@ -91,7 +100,7 @@ def home(request): #Whenever someone visits our website, their browser requests 
 
   
 
-    #donutchart.show()
+    donutchart.show()
 
     return render(request, 'home.html', {'exceldata': exceldata}) #and return our home page | context dictionary, we pass the api variable into our homepage and can now access it
 

@@ -3,179 +3,127 @@ import xlwings as xw
 import pandas as pd
 import plotly.express as px
 import time
+from pywintypes import com_error  # To catch RPC errors
 
-
-def home(request): #Whenever someone visits our website, their browser requests our page. We pass that request into our function
-    
-    import requests #requests stuff from the internet
-    import json #javascript object notation, default format for what most APIs return
+def home(request):
+    import requests
+    import json
 
     file_path = "SMIF Portfolio Tracker.xlsx"
-    app = xw.App(visible=False)  # app gives you more control by specifying an instance of the spreadsheet, set visible=True for debugging
-    wb = app.books.open(file_path)
-    sheet = wb.sheets['Transaction'] #rename to transaction later
-    dashsheet = wb.sheets['Dashboard']
+    max_retries = 10
+    retry_delay = 2  #Set to 2 for stability, try reducing later
 
-    try:
-        wb.api.RefreshAll()  # Refresh external data connections
-        time.sleep(2) #Gives Excel some time to update to prevent #CONNECT! error, adjust as needed 
-        app.calculate()  # Ensure formulas and links are updated
-
-        def safe_get_value(sheet, cell): #error handling to avoid Attribute Error from #CONNECT!
+    def get_cell_value(sheet, cell): #Gets a single cell value from an Excel sheet. Takes the excel sheet object and a single cell as parameters.
+        if sheet is None:
+            print("Error: The sheet does not exist or Excel connection is lost.")
+            return None
+        try:
             value = sheet[cell].value
-            if value is None:
-                return 0  # fallback value
-            return value
+            return value if value is not None else None
+        except Exception as e:
+            print(f"Error retrieving value from {cell}: {e}")
+            return None
 
-        smifytd = safe_get_value(dashsheet, 'J7')
-        smifytd = round(smifytd * 100, 2)
+    def get_range_values(sheet, cell_range): #Gets a range of values as a DataFrame from an Excel sheet. Takes the excel sheet object and cell_range (ex. 'B5:H100') as parameters.
+        if sheet is None:
+            print("Error: The sheet does not exist or Excel connection is lost.")
+            return pd.DataFrame()
+        try:
+            data = sheet.range(cell_range).options(pd.DataFrame, header=1, index=False).value
+            if data is None or data.empty:
+                return pd.DataFrame()
+            return data.dropna(how='any')
+        except Exception as e:
+            print(f"Error retrieving values from {cell_range}: {e}")
+            return pd.DataFrame()
 
-        spytd = safe_get_value(dashsheet, 'J12')
-        spytd = round(spytd * 100, 2)
+    for attempt in range(1, max_retries + 1): #Loop to attempt to retrieve data multiple times
+        try:
+            app = xw.App(visible=False) #Reinitialize Excel instance on each retry
+            wb = app.books.open(file_path) #Open the workbook/spreadsheet
+            transaction_sheet = wb.sheets['Transaction'] #Select the specific sheets needed
+            dashboard_sheet = wb.sheets['Dashboard']
 
-        print(f"Raw smifytd value: {dashsheet['J7'].value}")
-        print(f"Raw spytd value: {dashsheet['J12'].value}")
+            wb.api.RefreshAll() #Refresh all external data connections
+            time.sleep(retry_delay) #Gives Excel some time to update to prevent #CONNECT! error
+            app.calculate() #Ensure all formulas and links are recalculated
 
-        ytddata = {
+            smifytd = get_cell_value(dashboard_sheet, 'J7')
+            spytd = get_cell_value(dashboard_sheet, 'J12')
+
+            # Convert to percentage and round if there is a value there, otherwise return None
+            smifytd = round(smifytd * 100, 2) if smifytd is not None else None
+            spytd = round(spytd * 100, 2) if spytd is not None else None
+
+            if smifytd is not None and smifytd > 10000:  #Catch integer overflows from None values being processed incorrectly
+                raise ValueError(f"Unrealistic SMIF YTD: {smifytd}")
+            if spytd is not None and spytd > 10000:
+                raise ValueError(f"Unrealistic S&P500 YTD: {spytd}")
+
+            portfolio_data = get_range_values(transaction_sheet, "B5:H100")
+
+            wb.close() #Close and quit Excel to ensure full retry
+            app.quit() 
+
+            if smifytd is not None and spytd is not None and not portfolio_data.empty:
+                break  #Data is valid, continue
+            else:
+                print(f"Attempt {attempt}/{max_retries} failed. Retrying...")
+                time.sleep(retry_delay)
+        except com_error as e: #Error handling for RPC errors, wait and close Excel
+            print(f"RPC Error on attempt {attempt}: {e}")
+            time.sleep(retry_delay)
+            app.quit()  
+
+    else:
+        raise ValueError("Failed to fetch valid data after 10 retries.")
+
+    #DataFrame for year-to-date performance
+    ytd_data = { 
         "Portfolio": ["S&P500", "SMIF"],
         "Gain (%)": [spytd, smifytd],
-        }
-        ytddf = pd.DataFrame(ytddata)
-        #print(ytddf)
+    }
+    ytd_df = pd.DataFrame(ytd_data)
 
-        exceldata = sheet.range("B5:H100").options(pd.DataFrame, header=1, index=False).value
-        exceldata = exceldata.dropna(how='any') #Drop rows where all elements are NaN
-        #print(exceldata)
-    finally: #finally block always executes after normal termination of try block or after try block terminates due to some exception.
-        wb.close()
-        app.quit()
-
-    barchart = px.bar(
-        ytddf, 
+    #Bar chart for portfolio YTD performance
+    bar_chart = px.bar(
+        ytd_df, 
         x="Portfolio", 
         y="Gain (%)", 
         title="Portfolio Performance YTD", 
         text="Gain (%)",
-        color ="Portfolio",
+        color="Portfolio",
         color_discrete_map={"S&P500": "#ef553b", "SMIF": "#636efa"}
-        )
-    
-    #barchart.update_yaxes(range=[0, 35])
-    barchart.update_layout(
-        width=700, 
-        height=500, 
-        bargap=0.4,
-        showlegend=False
-        )
+    )
+    bar_chart.update_layout(width=700, height=500, bargap=0.4, showlegend=False)
+    bar_chart.show()
 
-    barchart.show()
-
-    donutchart = px.pie(
-        exceldata, 
+    #Pie chart for portfolio distribution
+    donut_chart = px.pie(
+        portfolio_data, 
         names='Ticker', 
         values='Weight',
         custom_data=['Live Price', 'Purchase Price', 'Quantity', 'Total Value'],
         title='Portfolio Distribution',
         hole=0.5, 
-        )
-
-    donutchart.update_traces(
-    textinfo='percent+label', 
-    hovertemplate=
-    "<b>%{label}</b><br>" +
-    "Live Price: $%{customdata[0][0]:,.2f}<br>" +
-    "Purchase Price: $%{customdata[0][1]:,.2f}<br>" +
-    "Quantity: %{customdata[0][2]:.0f}<br>" +
-    "Total Value: $%{customdata[0][3]:,.2f}<br>" +
-    "Weight: %{percent}" +
-    "<extra></extra>"
-    )
-    
-    donutchart.update_layout(
-    autosize=False,
-    width=900,
-    height=900,
-    showlegend=False
     )
 
-  
-
-    donutchart.show()
-
-    return render(request, 'home.html', {'exceldata': exceldata}) #and return our home page | context dictionary, we pass the api variable into our homepage and can now access it
-
-def about(request):
-    return render(request, 'about.html', {}) #Allow us to pass stuff into the webpage and use it in the HTMl page in Python
-
-
-
-'''
-    sampledf = pd.DataFrame([['AAPL', 100], ['ADBE', 120], ['ADP', 80], ['ALL', 50], ['AMZN', 200]], columns = ['Tickers', 'Weight'])
-
-    fig = px.pie(sampledf, names='Tickers', values='Weight',hole=0.5)
-    fig.update_traces(
+    donut_chart.update_traces(
         textinfo='percent+label', 
-        hovertemplate='%{label}<br>Price: $%{value}<br>Weight: (%{percent})<extra></extra>'
+        hovertemplate="""
+        <b>%{label}</b><br>
+        Live Price: $%{customdata[0][0]:,.2f}<br>
+        Purchase Price: $%{customdata[0][1]:,.2f}<br>
+        Quantity: %{customdata[0][2]:.0f}<br>
+        Total Value: $%{customdata[0][3]:,.2f}<br>
+        Weight: %{percent}<extra></extra>
+        """
     )
-    fig.show()
-'''
-
-#Old views.py from xlwings
-'''
-from django.shortcuts import render
-import xlwings as xw
-
-
-def home(request): #Whenever someone visits our website, their browser requests our page. We pass that request into our function
     
-    import requests #requests stuff from the internet
-    import json #javascript object notation, default format for what most APIs return
+    donut_chart.update_layout(autosize=False, width=900, height=900, showlegend=False)
+    donut_chart.show()
 
-    smif_wb = xw.Book("SMIF Portfolio Tracker.xlsx")
-
-    portfolio_s = smif_wb.sheets["Portfolio"]
-
-    data_range = portfolio_s.range('B6:I7')
-
-    data = data_range.value #Gets the values of the range specified in data_range
-
-    print(data)
-
-    return render(request, 'home.html', {'data': data}) #and return our home page | context dictionary, we pass the api variable into our homepage and can now access it
+    return render(request, 'home.html', {'exceldata': portfolio_data})
 
 def about(request):
-    return render(request, 'about.html', {}) #Allow us to pass stuff into the webpage and use it in the HTMl page in Python
-
-
-'''
-
-#Old views.py from Tiingo API
-'''from django.shortcuts import render
-
-def home(request): #Whenever someone visits our website, their browser requests our page. We pass that request into our function
-    
-    import requests #requests stuff from the internet
-    import json #javascript object notation, default format for what most APIs return
-
-
-    headers = { #explained in notes
-        'Content-Type': 'application/json',
-        'Authorization': 'Token INSERT_API_KEY_HERE'
-        }
-    
-    tickers = ['aapl','adbe','adp', 'all', 'amzn']
-    stock_data = []
-
-    for ticker in tickers:
-        api_request = requests.get(f"https://api.tiingo.com/tiingo/daily/{ticker}/prices", headers=headers) #"https://api.tiingo.com/api/test?token=934aff6d72127c613a4b3d0093d49b5565184e27"
-        try:
-            api = json.loads(api_request.content) #trying to parse the data collected in api_requests from Tiingo
-            stock_data.append({ 'ticker': ticker, 'data': api })
-        except Exception as e:
-            stock_data.append({'ticker': ticker, 'data': 'Error...'})
-
-
-    return render(request, 'home.html', {'stock_data': stock_data}) #and return our home page | context dictionary, we pass the api variable into our homepage and can now access it
-
-def about(request):
-    return render(request, 'about.html', {}) #Allow us to pass stuff into the webpage and use it in the HTMl page in Python'''
+    return render(request, 'about.html', {}) #Allow us to pass stuff into the webpage and use it in the HTML page in Python
